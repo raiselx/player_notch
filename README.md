@@ -1,58 +1,136 @@
-# NotchPlayer (`player_notch`)
+# PlayerNotch — Rust
 
-A frameless always-on-top mini media player for Windows 10/11 shaped like a MacBook notch / Dynamic Island. Connects to active Windows System Media Transport Controls (SMTC) sessions (Apple Music, Spotify, browsers, etc.).
+Мини-плеер для Windows 10/11 в стиле Dynamic Island. Показывает активную системную
+медиасессию (SMTC): Apple Music, Spotify, браузер и другие приложения с поддержкой
+системного управления воспроизведением.
 
-## Features
+Проект использует Rust, egui и Windows API. Python и Qt не требуются.
+Готовая сборка находится в `target/release/NotchPlayer.exe`.
 
-- **Auto-hide behavior:** smoothly slides up and hides when nothing is playing or playback is stopped (including idle placeholders like Apple Music's `Not Playing`). Remains visible for `10s` after pausing (`PAUSE_LINGER`) or while hovered.
-- **Compact mode (`360×40`):** square album art (`26×26`, `4 px` radius), truncated track title, and `⏮` `⏯` `⏭` controls.
-- **Expanded mode on hover (`420×102`):** smoothly expands to show larger cover art (`40×40`, `6 px` radius), scrolling marquee for long titles, artist name, interactive seek/progress bar with elapsed/total time, and a large circular Play/Pause button.
-- **Click-to-open source app:** clicking the album art or title in expanded mode brings the source application window to the foreground (supports both standard `.exe` apps and Microsoft Store / UWP apps via `ApplicationFrameHost` + `GetApplicationUserModelId`, falling back to `explorer.exe shell:AppsFolder\<AUMID>`).
-- **Adaptive background color:** extracts a dominant saturated color from the cover art (`MEDIANCUT` quantization + averaging + darkening) and smoothly animates vertical gradients on track change.
-- **System tray & single instance:** tray icon with **Autostart with Windows** (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\FloatingNotchPlayer`) and **Quit**, plus single-instance mutex protection (`Local\FloatingNotchPlayerSingleInstance`).
+## Возможности
 
-## Project Structure
+- Окно без рамки поверх остальных окон у верхнего края основного монитора.
+  По умолчанию чёлка расположена по центру.
+- Компактный вид `360×40`: обложка, название трека, часы и дата на выбранном языке.
+- Мини-чёлка `152×12`: прогресс и три анимированные полоски; на паузе или без музыки видны три точки.
+- Во время воспроизведения три полоски справа от названия декоративно анимируются; приложение не считывает звук и не обращается к микрофону.
+- По умолчанию без медиа Notch остаётся мини-чёлкой и при наведении показывает обычный вид
+  с часами и датой.
+- С медиа наведение открывает расширенный вид `416×136` с исполнителем,
+  прогрессом, перемоткой и кнопками управления воспроизведением.
+- При включённой «Мини-чёлке» Notch свёрнут без наведения. При выключенной
+  настройке он показывает обычный вид во время воспроизведения и ещё
+  10 секунд после паузы, затем сворачивается. Задержку можно изменить.
+- Клик по свободной области закрепляет плеер открытым, повторный клик снимает
+  закрепление. Переход курсора в контекстное меню также удерживает его открытым.
+- По умолчанию включённый анимированный фон из размытых и наложенных слоёв
+  обложки; оттенки плавно перетекают, а при смене трека фон мягко меняется.
+  Если обложка исчезает, фон ещё секунду сохраняет её цвета и затем плавно
+  становится чёрным. Анимацию можно выключить переключателем
+  «Анимация градиента» в настройках.
+- Активация приложения-источника по нажатию на обложку, название трека или имя исполнителя.
+- Управление Apple Music через UI Automation, когда SMTC не предоставляет нужную
+  возможность. Требуется запущенное приложение с доступными элементами UIA.
+- Нативный системный трей, настройки, автозапуск и ярлык в меню «Пуск».
+- Защита от повторного запуска; имя mutex совместимо с прежней версией.
 
-- `player.py` — main application (`Media` SMTC poller + `Notch` Qt widget + tray integration)
-- `NotchPlayer.spec` — PyInstaller `--onefile --windowed` build specification
-- `requirements.txt` — Python dependencies
-- `dist/NotchPlayer.exe` — prebuilt standalone Windows executable (~53.6 MiB)
+## Настройки чёлки
 
-## Quick Start
+Откройте «Настройки» через значок PlayerNotch в трее. Язык интерфейса можно переключить между русским и английским; по умолчанию используется язык интерфейса Windows (для остальных языков — английский). В карточках можно выбрать
+положение чёлки, вид без музыки и скрытие поверх полноэкранных приложений.
+Настраиваются раскрытие по наведению или щелчку, задержки и время сворачивания
+после паузы. В настройке «Фон чёлки» можно выбрать «Из обложки» или
+«Сплошной чёрный». Для внешнего вида также доступны часы, дата, анимация
+градиента, мини-прогресс и прокрутка длинных названий. Изменения применяются сразу.
 
-### Run the standalone `.exe`
-Download and launch `dist/NotchPlayer.exe` (no Python installation required).
+## Запуск и проверки
 
-### Run from source
-Tested on Windows 11 with Python `3.14.2`:
+Нужен Rust stable и Windows toolchain: MSVC с C++ Build Tools/Windows SDK или
+`x86_64-pc-windows-gnu` с MinGW-w64 в `PATH` (включая `gcc` и `windres`).
 
 ```powershell
-pip install -r requirements.txt
-python player.py
+cargo check --all-targets --locked
+cargo test --locked
+cargo run --locked
 ```
 
-CLI flags for autostart:
-```powershell
-python player.py --enable-autostart
-python player.py --disable-autostart
-```
-
-Debug environment variables:
-- `CLOCK_DEBUG_SHOT=<path>` — saves a widget screenshot after 3.5s and exits
-- `CLOCK_DEBUG_HOVER=1` — forces expanded hover state
-
-## Build Executable
+Отдельная проверка инициализации SMTC в интерактивной Windows-сессии:
 
 ```powershell
-pip install pyinstaller==6.22.3
-pyinstaller --clean NotchPlayer.spec
+cargo test --locked smtc_manager_initializes -- --ignored
 ```
 
-The standalone binary will be generated at `dist/NotchPlayer.exe`.
+Если Rust установлен локально в `.tools/`, используйте обёртку:
 
-## Known Notes / TODO
+```powershell
+.\scripts\cargo.ps1 check --all-targets --locked
+.\scripts\cargo.ps1 test --locked
+.\scripts\cargo.ps1 run --locked
+```
 
-- Standalone `dist/NotchPlayer.exe` has not yet been extensively tested across different machines (including `winrt` inside onefile packaging).
-- Live UI interactions (button clicks, timeline seeking support in Apple Music, clicking cover/title to focus source app) need full end-to-end verification.
-- For browser media sessions, clicking the cover brings the top browser window to focus rather than a specific tab.
-- Near-white / grayscale covers currently produce a gray background tint.
+Предпросмотр интерфейса без управления реальной медиасессией:
+
+```powershell
+cargo run --locked -- --demo
+cargo run --locked -- --demo --settings
+```
+
+Сборка для распространения:
+
+```powershell
+cargo build --release --locked
+# Результат: target\release\NotchPlayer.exe
+```
+
+Шрифты и значок встраиваются в бинарный файл; соседняя папка `fonts` ему не нужна.
+
+CLI для управления автозапуском:
+
+```powershell
+cargo run --locked -- --enable-autostart
+cargo run --locked -- --disable-autostart
+```
+
+Автозапуск ссылается на фактически запущенный бинарный файл и при входе в Windows
+включает мини-режим на этот запуск. Для постоянного использования включайте
+автозапуск после размещения готового приложения в постоянной папке. При обычном
+запуске используется сохранённая настройка мини-режима, а ярлык «Пуск»
+обновляется на путь к запущенному файлу. `--demo` не меняет ярлык и не блокируется
+другим экземпляром приложения.
+
+## Данные и диагностика
+
+- `%APPDATA%\PlayerNotch\settings.json` — настройки чёлки. Старые значения
+  `mini_notch` и `static_bg` считываются как раньше, новые параметры получают
+  значения по умолчанию. Запись выполняется через временный файл и атомарную замену.
+- `%APPDATA%\PlayerNotch\crash.log` — ошибки запуска и паники.
+- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\FloatingNotchPlayer` — автозапуск.
+- `CLOCK_DEBUG_HOVER=1` или `PLAYER_NOTCH_DEBUG_HOVER=1` — принудительное раскрытие.
+- `CLOCK_DEBUG_SHOT=<absolute-path.png>` — снимок окна через 3,5 секунды с выходом.
+  Для снимка без музыки используйте `--demo`.
+
+## Структура
+
+| Файл | Назначение |
+| --- | --- |
+| `src/main.rs` | Запуск, CLI, одиночный экземпляр, журнал ошибок |
+| `src/app.rs` | Чёлка, анимации, обработка мыши, применение настроек |
+| `src/settings_ui.rs` | Карточки и элементы управления в окне настроек |
+| `src/model.rs` | Состояние медиасессии и команды |
+| `src/media.rs` | Фоновый SMTC, выбор сессии, таймлайн и обложки |
+| `src/apple_music.rs` | Управление Apple Music через UI Automation |
+| `src/platform.rs` | Win32: трей, автозапуск, ярлык, активация приложений |
+| `src/settings.rs` | Чтение и сохранение настроек |
+| `src/theme.rs` | Цвета обложки и отрисовка живого градиента |
+| `build.rs` | Значок и сведения о приложении в Windows resources |
+
+## Ограничения
+
+Поведение транспортных команд зависит от возможностей приложения источника.
+Браузер активируется целиком, выбор конкретной вкладки не реализован. Элементы
+UI Automation Apple Music могут меняться при обновлениях Apple Music. Полная
+проверка действий в разных проигрывателях и при разных DPI проводится отдельно
+от компиляции и модульных тестов.
+
+Лицензия кода: MIT, см. `LICENSE`. Шрифты в `fonts/` сохранены из исходного проекта;
+их использование и распространение регулируются лицензией правообладателя.
